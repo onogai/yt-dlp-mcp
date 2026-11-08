@@ -75,6 +75,12 @@ const DownloadVideoSubtitlesInput = {
     .regex(/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/, "Invalid language code format")
     .optional()
     .describe("Language code (e.g., 'en', 'zh-Hant', 'ja')"),
+  startTime: z.string().regex(/^\d{2,}:\d{2}:\d{2}(\.\d{1,3})?$/).optional()
+    .describe("Include cues starting at or after HH:MM:SS[.ms]"),
+  endTime: z.string().regex(/^\d{2,}:\d{2}:\d{2}(\.\d{1,3})?$/).optional()
+    .describe("Include cues starting before HH:MM:SS[.ms] (exclusive)"),
+  offset: z.number().int().min(0).optional()
+    .describe("Cue offset within this time window; use nextOffset from the preceding page"),
 };
 
 const DownloadVideoInput = {
@@ -108,6 +114,12 @@ const DownloadTranscriptInput = {
     .regex(/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/, "Invalid language code format")
     .optional()
     .describe("Language code (e.g., 'en', 'zh-Hant', 'ja'). Defaults to 'en'"),
+  startTime: z.string().regex(/^\d{2,}:\d{2}:\d{2}(\.\d{1,3})?$/).optional()
+    .describe("Include cues starting at or after HH:MM:SS[.ms]"),
+  endTime: z.string().regex(/^\d{2,}:\d{2}:\d{2}(\.\d{1,3})?$/).optional()
+    .describe("Include cues starting before HH:MM:SS[.ms] (exclusive)"),
+  offset: z.number().int().min(0).optional()
+    .describe("Cue offset within this time window; use nextOffset from the preceding page"),
 };
 
 const GetVideoMetadataInput = {
@@ -366,12 +378,15 @@ This tool downloads subtitle files in WebVTT format, including both manually cre
 Args:
   - url (string): Full video URL
   - language (string, optional): Language code (e.g., 'en', 'zh-Hant', 'ja'). Defaults to config setting (usually 'en'). Auto-generated subtitles are used if manual ones aren't available.
+  - startTime, endTime (string, optional): HH:MM:SS[.ms] time window; includes cues by start time, excluding endTime
+  - offset (number, optional): Cue offset within the selected window; pass nextOffset from the previous page
 
 Returns:
   Raw VTT subtitle content with:
   - Timestamp markers
   - Subtitle text segments
   - Formatting information
+  - A VTT NOTE with hasMore and, when needed, nextOffset. Continue with the same URL, language and time window until hasMore is false. A small window can still span pages.
 
 Use when: You need subtitle files with timestamps for video processing
 Don't use when: You want plain text transcript (use ytdlp_download_transcript instead)
@@ -388,9 +403,9 @@ Error Handling:
       openWorldHint: true
     }
   },
-  async ({ url, language }) =>
+  async ({ url, language, startTime, endTime, offset }) =>
     handleToolExecution(
-      () => downloadSubtitles(url, language || CONFIG.download.defaultSubtitleLanguage, CONFIG),
+      () => downloadSubtitles(url, language || CONFIG.download.defaultSubtitleLanguage, CONFIG, { startTime, endTime, offset }),
       "Error downloading subtitles"
     )
 );
@@ -486,6 +501,8 @@ This tool downloads subtitles and converts them to clean, readable text by remov
 Args:
   - url (string): Full video URL
   - language (string, optional): Language code (e.g., 'en', 'zh-Hant', 'ja'). Defaults to 'en'
+  - startTime, endTime (string, optional): HH:MM:SS[.ms] time window; includes cues by start time, excluding endTime
+  - offset (number, optional): Cue offset within the selected window; pass nextOffset from the previous page
 
 Returns:
   Plain text transcript with:
@@ -493,6 +510,7 @@ Returns:
   - No timestamps or technical markers
   - Cleaned HTML/formatting tags
   - Whitespace normalized
+  - Pagination footer with hasMore and, when needed, nextOffset. Continue with the same URL, language and time window until hasMore is false. A small window can still span pages.
 
 Use when: You need readable text content for analysis, summarization, or quotes
 Don't use when: You need timestamps (use ytdlp_download_video_subtitles) or audio file (use ytdlp_download_audio)
@@ -509,9 +527,9 @@ Error Handling:
       openWorldHint: true
     }
   },
-  async ({ url, language }) =>
+  async ({ url, language, startTime, endTime, offset }) =>
     handleToolExecution(
-      () => downloadTranscript(url, language || CONFIG.download.defaultSubtitleLanguage, CONFIG),
+      () => downloadTranscript(url, language || CONFIG.download.defaultSubtitleLanguage, CONFIG, { startTime, endTime, offset }),
       "Error downloading transcript"
     )
 );
