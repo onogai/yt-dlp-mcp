@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /opt/ytdlp/bin/yt-dlp --js-runtimes node "$@"

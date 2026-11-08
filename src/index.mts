@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { pathToFileURL } from "node:url";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
@@ -229,7 +230,7 @@ async function checkDependencies(): Promise<void> {
 /**
  * Initialize service
  */
-async function initialize(): Promise<void> {
+export async function initialize(): Promise<void> {
   // Skip initialization checks in test environment
   if (process.env.NODE_ENV === 'test') {
     return;
@@ -265,6 +266,7 @@ async function handleToolExecution<T>(
   }
 }
 
+export function createServer(): McpServer {
 const server = new McpServer(
   {
     name: "yt-dlp-mcp",
@@ -715,14 +717,19 @@ Error Handling:
     )
 );
 
+return server;
+}
+
 /**
  * Starts the server using Stdio transport.
  */
 async function startServer() {
   await initialize();
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await createServer().connect(transport);
 }
 
 // Start the server and handle potential errors
-startServer().catch(console.error);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startServer().catch(console.error);
+}
