@@ -12,11 +12,10 @@ ENV PATH="/opt/ytdlp/bin:${PATH}"
 RUN npm install --global --no-audit --no-fund supergateway@4.2.2
 
 WORKDIR /opt/yt-dlp-mcp
-COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY src ./src
-RUN npm run prepare
+# npm ci runs the package's 'prepare' script, which needs TypeScript sources.
+RUN npm ci --no-audit --no-fund
 
 EXPOSE 8770
 ENTRYPOINT ["supergateway"]
