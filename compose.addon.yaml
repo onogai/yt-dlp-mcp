@@ -1,0 +1,52 @@
+# Private schema-v2 package for the existing yt-dlp MCP implementation.
+# Does NOT take over the production 'ytdlp' MCP source or old containers.
+services:
+  youtube:
+    build:
+      context: .
+      dockerfile: packaging/switchboard/Dockerfile
+    user: "${HOST_UID:?}:${HOST_GID:?}"
+    init: true
+    restart: unless-stopped
+    command:
+      - --stdio
+      - node lib/index.mjs
+      - --outputTransport
+      - streamableHttp
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8770"
+      - --healthEndpoint
+      - /healthz
+    environment:
+      HOME: /tmp
+      YTDLP_DOWNLOADS_DIR: /data/downloads
+      YTDLP_IGNORE_CONFIG: "1"
+    volumes:
+      - "${SWITCHBOARD_ADDON_STATE:?}/downloads:/data/downloads"
+    networks:
+      addons:
+        aliases:
+          - "${SWITCHBOARD_ADDON_DNS:?}"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8770/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+networks:
+  addons:
+    external: true
+    name: "${SWITCHBOARD_ADDONS_NETWORK:?}"

@@ -1,0 +1,42 @@
+name: Switchboard add-on Docker acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  addon-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create isolated test state and network
+        run: |
+          mkdir -p .addon-test-state/downloads
+          docker network create sb-addon-test
+          {
+            echo "HOST_UID=$(id -u)"
+            echo "HOST_GID=$(id -g)"
+            echo "SWITCHBOARD_ADDON_STATE=$PWD/.addon-test-state"
+            echo "SWITCHBOARD_ADDON_DNS=addon-youtube"
+            echo "SWITCHBOARD_ADDONS_NETWORK=sb-addon-test"
+          } > .addon-test.env
+      - name: Validate Compose manifest
+        run: docker compose --env-file .addon-test.env -f compose.addon.yaml config --quiet
+      - name: Build and run actual adapter and MCP
+        run: docker compose --env-file .addon-test.env -p sb-addon-test -f compose.addon.yaml up -d --build --wait
+      - name: Validate real MCP protocol and ten tools
+        run: |
+          docker run --rm --network sb-addon-test \
+            --mount "type=bind,source=$PWD/packaging/switchboard/test_mcp.py,target=/test.py,readonly" \
+            ghcr.io/astral-sh/uv:python3.12-trixie-slim \
+            uv run --no-project --with fastmcp==4.2.0 python /test.py http://addon-youtube:8770/mcp
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose --env-file .addon-test.env -p sb-addon-test -f compose.addon.yaml logs --tail=120
+      - name: Tear down disposable test
+        if: always()
+        run: |
+          docker compose --env-file .addon-test.env -p sb-addon-test -f compose.addon.yaml down --remove-orphans || true
+          docker network rm sb-addon-test || true

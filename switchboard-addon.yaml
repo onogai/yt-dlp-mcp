@@ -1,0 +1,11 @@
+# Install with Switchboard's schema-v2 host-side add-on CLI.
+# Uses an independent private Compose project and a persistent downloads directory.
+schema: 2
+id: youtube
+name: YouTube / yt-dlp MCP
+compose: compose.addon.yaml
+service: youtube
+services: youtube
+state_dirs: downloads
+mcp_port: 8770
+mcp_path: /mcp
