@@ -11,6 +11,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Unit-test bounded subtitle catalog
+        run: |
+          npm ci --no-audit --no-fund
+          node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/subtitle-format.test.ts --runInBand
       - name: Create isolated test state and network
         run: |
           mkdir -p .addon-test-state/downloads
