@@ -5,6 +5,101 @@ import type { Config } from '../config.js';
 import { getCookieArgs, getGlobalArgs } from '../config.js';
 import { _spawnPromise, validateUrl, assertPublicUrl, cleanSubtitleToTranscript } from "./utils.js";
 
+type SubtitleKind = "manual" | "automatic";
+type SubtitleLanguage = {
+  code: string;
+  name: string;
+  formats: string[];
+};
+
+/**
+ * Turn yt-dlp's potentially enormous --list-subs table into a bounded
+ * language catalog. Never return raw yt-dlp output to MCP clients: YouTube
+ * automatic-caption tables can exceed a transport's single-message limit.
+ *
+ * Manual subtitles appear before automatic captions so a large auto-caption
+ * catalog cannot hide the user's more useful manually authored languages.
+ */
+export function formatSubtitleLanguageList(raw: string, requestedLimit = 25000): string {
+  const limit = Math.min(25000, Math.max(512, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 25000));
+  const subtitles: Record<SubtitleKind, Map<string, SubtitleLanguage>> = {
+    manual: new Map(),
+    automatic: new Map(),
+  };
+  let section: SubtitleKind | undefined;
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (/Available automatic captions for\b/i.test(line)) {
+      section = "automatic";
+      continue;
+    }
+    if (/Available subtitles for\b/i.test(line)) {
+      section = "manual";
+      continue;
+    }
+    if (!section || /^\s*Language\s+Name\s+Formats\s*$/i.test(line)) {
+      continue;
+    }
+    // Progress, debug and video-info lines are not subtitle-language rows.
+    if (/^\s*\[/.test(line)) {
+      continue;
+    }
+    const columns = line.trim().split(/\s{2,}/);
+    if (columns.length < 2) {
+      continue;
+    }
+    const code = columns[0];
+    if (!/^[a-z][\w-]{0,31}$/i.test(code)) {
+      continue;
+    }
+    const name = (columns.length > 2 ? columns.slice(1, -1).join(" ") : columns[1]).trim();
+    const formatText = columns.length > 2 ? columns[columns.length - 1] : "";
+    const formats = [...new Set(formatText.split(",").map(value => value.trim())
+      .filter(value => /^[a-z0-9][a-z0-9._-]{0,15}$/i.test(value)))];
+    subtitles[section].set(code, { code, name, formats });
+  }
+
+  const manual = [...subtitles.manual.values()];
+  const automatic = [...subtitles.automatic.values()];
+  const total = manual.length + automatic.length;
+  if (!total) {
+    return /\bno (?:subtitles|automatic captions)\b|\bhas no subtitles\b/i.test(raw)
+      ? "Language catalog: yt-dlp reports no available subtitle languages."
+      : "Language catalog: yt-dlp returned no parseable subtitle rows.";
+  }
+
+  let result = `Language catalog: ${manual.length} manual, ${automatic.length} automatic caption languages.`;
+  let omitted = 0;
+  for (const [heading, rows] of [
+    ["Manual subtitles", manual],
+    ["Automatic captions", automatic],
+  ] as const) {
+    if (!rows.length) continue;
+    const header = `\n\n${heading}:`;
+    if (result.length + header.length + 100 > limit) {
+      omitted += rows.length;
+      continue;
+    }
+    result += header;
+    for (const item of rows) {
+      const name = item.name.slice(0, 90);
+      const formats = item.formats.slice(0, 8).join(", ");
+      const more = item.formats.length > 8 ? `, +${item.formats.length - 8} formats` : "";
+      const row = `\n${item.code}: ${name}${formats ? ` [${formats}${more}]` : ""}`;
+      // Reserve room for the final omission notice.
+      if (result.length + row.length + 100 > limit) {
+        omitted += 1;
+      } else {
+        result += row;
+      }
+    }
+  }
+  if (omitted) {
+    result += `\n... ${omitted} additional languages omitted to keep the response bounded.`;
+  }
+  return result;
+}
+
 /**
  * Lists all available subtitles for a video.
  *
@@ -36,12 +131,12 @@ export async function listSubtitles(url: string, config?: Config): Promise<strin
       '--list-subs',
       '--write-auto-sub',
       '--skip-download',
-      '--verbose',
+      '--no-warnings',
       ...(config ? getCookieArgs(config) : []),
       url
     ];
     const output = await _spawnPromise('yt-dlp', args);
-    return output;
+    return formatSubtitleLanguageList(output, config?.limits.characterLimit);
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes("Unsupported URL") || error.message.includes("not supported")) {
@@ -54,7 +149,9 @@ export async function listSubtitles(url: string, config?: Config): Promise<strin
         throw new Error("Network error while fetching subtitles. Check your internet connection and retry.");
       }
     }
-    throw error;
+    // _spawnPromise includes stderr and stdout on failures. Never forward
+    // that unbounded diagnostic blob through MCP or reveal cookie/proxy data.
+    throw new Error("Unable to list subtitles: yt-dlp failed. Check access and server logs.");
   }
 }
 
