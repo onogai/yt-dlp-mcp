@@ -3,6 +3,7 @@
 schema: 2
 id: youtube
 name: YouTube / yt-dlp MCP
+icon: assets/icon.svg
 compose: compose.addon.yaml
 service: youtube
 services: youtube
